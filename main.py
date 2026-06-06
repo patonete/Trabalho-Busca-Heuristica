@@ -1,3 +1,5 @@
+import heapq
+
 mapa = [
     [0, 0, 0],
     [0, 1, 0],
@@ -12,36 +14,50 @@ def heuristica(a, b):
 
 def a_star(mapa, inicio, objetivo):
 
+    fila = []
+    heapq.heappush(fila, (0, inicio))
+
     visitados = set()
-    visitados.add(inicio)
 
-    atual = inicio
+    while fila:
 
-    x, y = atual
+        _, atual = heapq.heappop(fila)
 
-    vizinhos = [
-        (x + 1, y),
-        (x - 1, y),
-        (x, y + 1),
-        (x, y - 1)
-    ]
+        if atual in visitados:
+            continue
 
-    vizinhos_validos = []
+        visitados.add(atual)
 
-    for nx, ny in vizinhos:
+        print("Visitando:", atual)
 
-        if 0 <= nx < len(mapa) and 0 <= ny < len(mapa[0]):
+        if atual == objetivo:
+            return [inicio, objetivo]
 
-            if mapa[nx][ny] == 0:
+        x, y = atual
 
-                vizinhos_validos.append((nx, ny))
+        vizinhos = [
+            (x + 1, y),
+            (x - 1, y),
+            (x, y + 1),
+            (x, y - 1)
+        ]
 
-    print("Visitados:", visitados)
-    print("Vizinhos válidos:", vizinhos_validos)
+        for nx, ny in vizinhos:
 
-    return [inicio]
+            if 0 <= nx < len(mapa) and 0 <= ny < len(mapa[0]):
+
+                if mapa[nx][ny] == 0:
+
+                    prioridade = heuristica((nx, ny), objetivo)
+
+                    heapq.heappush(
+                        fila,
+                        (prioridade, (nx, ny))
+                    )
+
+    return None
 
 caminho = a_star(mapa, inicio, objetivo)
 
-print("Caminho encontrado:")
+print("Resultado:")
 print(caminho)

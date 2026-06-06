@@ -11,8 +11,11 @@ objetivo = (2, 2)
 def heuristica(a, b):
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
-distancia = heuristica(inicio, objetivo)
+def a_star(mapa, inicio, objetivo):
+    print("Executando busca...")
+    return [inicio, objetivo]
 
-print("Início:", inicio)
-print("Objetivo:", objetivo)
-print("Distância estimada:", distancia)
+caminho = a_star(mapa, inicio, objetivo)
+
+print("Caminho encontrado:")
+print(caminho)

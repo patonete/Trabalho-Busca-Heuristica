@@ -1,4 +1,3 @@
-# matriz simples pra teste
 mapa = [
     [0, 0, 0],
     [0, 1, 0],
@@ -13,6 +12,9 @@ def heuristica(a, b):
 
 def a_star(mapa, inicio, objetivo):
 
+    visitados = set()
+    visitados.add(inicio)
+
     atual = inicio
 
     x, y = atual
@@ -24,8 +26,18 @@ def a_star(mapa, inicio, objetivo):
         (x, y - 1)
     ]
 
-    print("Vizinhos encontrados:")
-    print(vizinhos)
+    vizinhos_validos = []
+
+    for nx, ny in vizinhos:
+
+        if 0 <= nx < len(mapa) and 0 <= ny < len(mapa[0]):
+
+            if mapa[nx][ny] == 0:
+
+                vizinhos_validos.append((nx, ny))
+
+    print("Visitados:", visitados)
+    print("Vizinhos válidos:", vizinhos_validos)
 
     return [inicio]
 

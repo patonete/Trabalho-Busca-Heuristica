@@ -1,6 +1,6 @@
 import heapq
 
-# Adiciona rastreamento do caminho percorrido
+# Adiciona verificacao para caminhos melhores
 
 mapa = [
     [0, 0, 0],
@@ -19,8 +19,8 @@ def a_star(mapa, inicio, objetivo):
     fila = []
     heapq.heappush(fila, (0, inicio))
 
-    custo = {inicio: 0}
     veio_de = {}
+    custo = {inicio: 0}
 
     while fila:
 
@@ -57,7 +57,8 @@ def a_star(mapa, inicio, objetivo):
 
                 novo_custo = custo[atual] + 1
 
-                if (nx, ny) not in custo:
+                # Agora atualiza caso encontre um caminho melhor
+                if (nx, ny) not in custo or novo_custo < custo[(nx, ny)]:
 
                     custo[(nx, ny)] = novo_custo
 

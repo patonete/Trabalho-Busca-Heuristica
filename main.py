@@ -17,18 +17,11 @@ def a_star(mapa, inicio, objetivo):
     fila = []
     heapq.heappush(fila, (0, inicio))
 
-    visitados = set()
+    custo = {inicio: 0}
 
     while fila:
 
         _, atual = heapq.heappop(fila)
-
-        if atual in visitados:
-            continue
-
-        visitados.add(atual)
-
-        print("Visitando:", atual)
 
         if atual == objetivo:
             return [inicio, objetivo]
@@ -46,9 +39,19 @@ def a_star(mapa, inicio, objetivo):
 
             if 0 <= nx < len(mapa) and 0 <= ny < len(mapa[0]):
 
-                if mapa[nx][ny] == 0:
+                if mapa[nx][ny] == 1:
+                    continue
 
-                    prioridade = heuristica((nx, ny), objetivo)
+                novo_custo = custo[atual] + 1
+
+                if (nx, ny) not in custo:
+
+                    custo[(nx, ny)] = novo_custo
+
+                    prioridade = (
+                        novo_custo +
+                        heuristica((nx, ny), objetivo)
+                    )
 
                     heapq.heappush(
                         fila,

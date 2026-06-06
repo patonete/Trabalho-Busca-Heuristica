@@ -7,6 +7,8 @@ Funcionalidades até agora:
   - Estados visuais para exploração (aberto, fechado, atual)
   - Exibição de custos g(n) e f(n) em cada célula
   - Controles: Iniciar, Pausar, Passo, Reiniciar e Velocidade
+  - Painel lateral com legenda, estatísticas e modos de edição
+  - Clique para editar obstáculos, início e objetivo
 """
 
 import sys
@@ -151,15 +153,17 @@ def a_star_gerador(mapa, inicio, objetivo):
 class CelulaWidget(QWidget):
     """Widget individual de cada célula do grid."""
 
-    def __init__(self, linha, coluna):
+    def __init__(self, linha, coluna, parent_grid):
         super().__init__()
         self.linha = linha
         self.coluna = coluna
+        self.parent_grid = parent_grid
         self.estado = EstadoCelula.LIVRE
         self.g_custo = None
         self.f_custo = None
         self.setMinimumSize(60, 60)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def _cor_base(self):
         cores = {
@@ -248,6 +252,9 @@ class CelulaWidget(QWidget):
 
         p.end()
 
+    def mousePressEvent(self, event):
+        self.parent_grid.celula_clicada(self.linha, self.coluna)
+
 
 # ─── Widget do Grid ──────────────────────────────────────────────────
 
@@ -262,6 +269,9 @@ class GridWidget(QWidget):
         self.linhas = len(mapa)
         self.colunas = len(mapa[0])
         self.celulas = {}
+        self.editavel = True
+        self.modo_edicao = 'obstaculo'  # 'obstaculo', 'inicio', 'objetivo'
+        self._callback_mudanca = None
 
         layout = QGridLayout()
         layout.setSpacing(3)
@@ -269,7 +279,7 @@ class GridWidget(QWidget):
 
         for i in range(self.linhas):
             for j in range(self.colunas):
-                cel = CelulaWidget(i, j)
+                cel = CelulaWidget(i, j, self)
                 if (i, j) == inicio:
                     cel.estado = EstadoCelula.INICIO
                 elif (i, j) == objetivo:
@@ -280,6 +290,49 @@ class GridWidget(QWidget):
                 self.celulas[(i, j)] = cel
 
         self.setLayout(layout)
+
+    def set_callback_mudanca(self, cb):
+        self._callback_mudanca = cb
+
+    def celula_clicada(self, linha, coluna):
+        if not self.editavel:
+            return
+
+        pos = (linha, coluna)
+
+        if self.modo_edicao == 'inicio':
+            # Remove início antigo
+            old = self.inicio
+            self.celulas[old].estado = EstadoCelula.LIVRE
+            self.celulas[old].update()
+            # Novo início
+            self.inicio = pos
+            self.mapa[linha][coluna] = 0
+            self.celulas[pos].estado = EstadoCelula.INICIO
+            self.celulas[pos].update()
+
+        elif self.modo_edicao == 'objetivo':
+            old = self.objetivo
+            self.celulas[old].estado = EstadoCelula.LIVRE
+            self.celulas[old].update()
+            self.objetivo = pos
+            self.mapa[linha][coluna] = 0
+            self.celulas[pos].estado = EstadoCelula.OBJETIVO
+            self.celulas[pos].update()
+
+        else:  # obstaculo toggle
+            if pos == self.inicio or pos == self.objetivo:
+                return
+            if self.mapa[linha][coluna] == 0:
+                self.mapa[linha][coluna] = 1
+                self.celulas[pos].estado = EstadoCelula.OBSTACULO
+            else:
+                self.mapa[linha][coluna] = 0
+                self.celulas[pos].estado = EstadoCelula.LIVRE
+            self.celulas[pos].update()
+
+        if self._callback_mudanca:
+            self._callback_mudanca()
 
     def resetar_visual(self):
         """Reseta o visual para o estado do mapa atual."""
@@ -299,13 +352,38 @@ class GridWidget(QWidget):
                 cel.update()
 
 
+# ─── Legenda ──────────────────────────────────────────────────────────
+
+class LegendaItem(QWidget):
+    def __init__(self, cor, texto):
+        super().__init__()
+        self.cor = cor
+        self.texto = texto
+        self.setFixedHeight(24)
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Quadradinho colorido
+        p.setBrush(QBrush(self.cor))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawRoundedRect(0, 4, 16, 16, 3, 3)
+
+        # Texto
+        p.setPen(QPen(Cores.TEXTO_SECUNDARIO))
+        p.setFont(QFont("Segoe UI", 9))
+        p.drawText(22, 0, 200, 24, Qt.AlignmentFlag.AlignVCenter, self.texto)
+        p.end()
+
+
 # ─── Janela Principal ────────────────────────────────────────────────
 
 class JanelaPrincipal(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("🔍 Visualização A* — Busca Heurística")
-        self.setMinimumSize(650, 600)
+        self.setMinimumSize(750, 650)
 
         # Estilo global
         self.setStyleSheet(f"""
@@ -389,8 +467,13 @@ class JanelaPrincipal(QMainWindow):
         subtitulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout_principal.addWidget(subtitulo)
 
+        # ─── Área central (grid + painel lateral) ─────────────
+        area_central = QHBoxLayout()
+        area_central.setSpacing(16)
+
         # Grid
         self.grid = GridWidget(mapa, inicio, objetivo)
+        self.grid.set_callback_mudanca(self._ao_mudar_mapa)
 
         grid_frame = QFrame()
         grid_frame.setStyleSheet(f"""
@@ -404,13 +487,97 @@ class JanelaPrincipal(QMainWindow):
         grid_layout.setContentsMargins(8, 8, 8, 8)
         grid_layout.addWidget(self.grid)
 
-        layout_principal.addWidget(grid_frame, stretch=1)
+        area_central.addWidget(grid_frame, stretch=3)
 
-        # ─── Status ──────────────────────────────────────────
+        # ─── Painel lateral ───────────────────────────────────
+        painel = QFrame()
+        painel.setStyleSheet(f"""
+            QFrame {{
+                background-color: {Cores.BG_PAINEL.name()};
+                border-radius: 14px;
+                border: 1px solid rgba(255, 255, 255, 0.06);
+            }}
+        """)
+        painel_layout = QVBoxLayout(painel)
+        painel_layout.setContentsMargins(16, 16, 16, 16)
+        painel_layout.setSpacing(10)
+
+        # Status
         self.lbl_status = QLabel("⏸  Pronto para iniciar")
         self.lbl_status.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
-        self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout_principal.addWidget(self.lbl_status)
+        self.lbl_status.setWordWrap(True)
+        painel_layout.addWidget(self.lbl_status)
+
+        # Info passos
+        self.lbl_passos = QLabel("Passos: 0")
+        self.lbl_passos.setStyleSheet(f"color: {Cores.TEXTO_SECUNDARIO.name()};")
+        painel_layout.addWidget(self.lbl_passos)
+
+        self.lbl_abertos = QLabel("Abertos: 0")
+        self.lbl_abertos.setStyleSheet(f"color: {Cores.ABERTO.name()};")
+        painel_layout.addWidget(self.lbl_abertos)
+
+        self.lbl_fechados = QLabel("Fechados: 0")
+        self.lbl_fechados.setStyleSheet(f"color: {Cores.FECHADO.name()};")
+        painel_layout.addWidget(self.lbl_fechados)
+
+        # Separador
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("background-color: rgba(255,255,255,0.08); max-height: 1px;")
+        painel_layout.addWidget(sep)
+
+        # Legenda
+        lbl_legenda = QLabel("Legenda")
+        lbl_legenda.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        painel_layout.addWidget(lbl_legenda)
+
+        legendas = [
+            (Cores.INICIO,    "A — Início"),
+            (Cores.OBJETIVO,  "★ — Objetivo"),
+            (Cores.OBSTACULO, "✕ — Obstáculo"),
+            (Cores.ABERTO,    "Aberto (na fila)"),
+            (Cores.FECHADO,   "Fechado (visitado)"),
+            (Cores.ATUAL,     "Nó atual"),
+            (Cores.CAMINHO,   "Caminho final"),
+        ]
+        for cor, texto in legendas:
+            painel_layout.addWidget(LegendaItem(cor, texto))
+
+        # Separador
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.Shape.HLine)
+        sep2.setStyleSheet("background-color: rgba(255,255,255,0.08); max-height: 1px;")
+        painel_layout.addWidget(sep2)
+
+        # Modo de edição
+        lbl_edicao = QLabel("Modo de Edição")
+        lbl_edicao.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        painel_layout.addWidget(lbl_edicao)
+
+        self.btn_modo_obstaculo = QPushButton("✕  Obstáculo")
+        self.btn_modo_inicio = QPushButton("A  Início")
+        self.btn_modo_objetivo = QPushButton("★  Objetivo")
+
+        self.btn_modo_obstaculo.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {Cores.ACENTO.name()};
+                border: 2px solid {Cores.ACENTO.name()};
+            }}
+        """)
+
+        self.btn_modo_obstaculo.clicked.connect(lambda: self._set_modo('obstaculo'))
+        self.btn_modo_inicio.clicked.connect(lambda: self._set_modo('inicio'))
+        self.btn_modo_objetivo.clicked.connect(lambda: self._set_modo('objetivo'))
+
+        for btn in [self.btn_modo_obstaculo, self.btn_modo_inicio, self.btn_modo_objetivo]:
+            btn.setFixedHeight(32)
+            painel_layout.addWidget(btn)
+
+        painel_layout.addStretch()
+
+        area_central.addWidget(painel, stretch=1)
+        layout_principal.addLayout(area_central, stretch=1)
 
         # ─── Barra de controles inferior ──────────────────────
         barra = QFrame()
@@ -493,6 +660,41 @@ class JanelaPrincipal(QMainWindow):
         self.rodando = False
         self.finalizado = False
 
+    def _set_modo(self, modo):
+        self.grid.modo_edicao = modo
+        estilo_normal = f"""
+            QPushButton {{
+                background-color: {Cores.BG_CARD.name()};
+                border: 1px solid rgba(255, 255, 255, 0.08);
+            }}
+        """
+        estilo_ativo = f"""
+            QPushButton {{
+                background-color: {Cores.ACENTO.name()};
+                border: 2px solid {Cores.ACENTO.name()};
+            }}
+        """
+        self.btn_modo_obstaculo.setStyleSheet(estilo_ativo if modo == 'obstaculo' else estilo_normal)
+        self.btn_modo_inicio.setStyleSheet(estilo_ativo if modo == 'inicio' else estilo_normal)
+        self.btn_modo_objetivo.setStyleSheet(estilo_ativo if modo == 'objetivo' else estilo_normal)
+
+    def _ao_mudar_mapa(self):
+        """Reseta a execução ao modificar o mapa."""
+        if self.rodando:
+            self.timer.stop()
+            self.rodando = False
+        self.gerador = None
+        self.finalizado = False
+        self.passos = 0
+        self.grid.resetar_visual()
+        self.lbl_status.setText("⏸  Mapa modificado — pronto")
+        self.lbl_passos.setText("Passos: 0")
+        self.lbl_abertos.setText("Abertos: 0")
+        self.lbl_fechados.setText("Fechados: 0")
+        self.btn_iniciar.setEnabled(True)
+        self.btn_pausar.setEnabled(False)
+        self.btn_passo.setEnabled(True)
+
     def _atualizar_velocidade(self, val):
         self.intervalo = max(20, 420 - val * 20)
         self.lbl_vel_valor.setText(f"{self.intervalo}ms")
@@ -518,6 +720,7 @@ class JanelaPrincipal(QMainWindow):
             self._criar_gerador()
 
         self.rodando = True
+        self.grid.editavel = False
         self.timer.start(self.intervalo)
         self.lbl_status.setText("▶  Explorando...")
         self.lbl_status.setStyleSheet(f"color: {Cores.ATUAL.name()};")
@@ -542,6 +745,7 @@ class JanelaPrincipal(QMainWindow):
         if self.gerador is None:
             self._criar_gerador()
 
+        self.grid.editavel = False
         self._proximo_passo()
 
     def reiniciar(self):
@@ -550,9 +754,13 @@ class JanelaPrincipal(QMainWindow):
         self.gerador = None
         self.finalizado = False
         self.passos = 0
+        self.grid.editavel = True
         self.grid.resetar_visual()
         self.lbl_status.setText("⏸  Pronto para iniciar")
         self.lbl_status.setStyleSheet(f"color: {Cores.TEXTO_PRIMARIO.name()};")
+        self.lbl_passos.setText("Passos: 0")
+        self.lbl_abertos.setText("Abertos: 0")
+        self.lbl_fechados.setText("Fechados: 0")
         self.btn_iniciar.setEnabled(True)
         self.btn_pausar.setEnabled(False)
         self.btn_passo.setEnabled(True)
@@ -568,6 +776,7 @@ class JanelaPrincipal(QMainWindow):
             self.timer.stop()
             self.rodando = False
             self.finalizado = True
+            self.grid.editavel = True
             self.btn_iniciar.setEnabled(True)
             self.btn_pausar.setEnabled(False)
             self.btn_passo.setEnabled(True)
@@ -608,7 +817,9 @@ class JanelaPrincipal(QMainWindow):
 
                     cel.update()
 
-            self.lbl_status.setText(f"▶  Explorando... (passo {self.passos})")
+            self.lbl_passos.setText(f"Passos: {self.passos}")
+            self.lbl_abertos.setText(f"Abertos: {len(abertos)}")
+            self.lbl_fechados.setText(f"Fechados: {len(fechados)}")
 
         elif tipo == 'caminho':
             caminho = dados
@@ -625,6 +836,7 @@ class JanelaPrincipal(QMainWindow):
             self.timer.stop()
             self.rodando = False
             self.finalizado = True
+            self.grid.editavel = True
             self.lbl_status.setText(f"✅  Caminho encontrado! ({len(caminho)} passos)")
             self.lbl_status.setStyleSheet(f"color: {Cores.CAMINHO.name()};")
             self.btn_iniciar.setEnabled(True)
@@ -635,6 +847,7 @@ class JanelaPrincipal(QMainWindow):
             self.timer.stop()
             self.rodando = False
             self.finalizado = True
+            self.grid.editavel = True
             self.lbl_status.setText("❌  Nenhum caminho encontrado!")
             self.lbl_status.setStyleSheet(f"color: {Cores.BTN_PERIGO.name()};")
             self.btn_iniciar.setEnabled(True)

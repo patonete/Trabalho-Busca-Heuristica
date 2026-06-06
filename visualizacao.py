@@ -6,14 +6,15 @@ Funcionalidades até agora:
   - Algoritmo A* como gerador (passo a passo)
   - Estados visuais para exploração (aberto, fechado, atual)
   - Exibição de custos g(n) e f(n) em cada célula
+  - Controles: Iniciar, Pausar, Passo, Reiniciar e Velocidade
 """
 
 import sys
 import heapq
 from enum import Enum, auto
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout,
-    QGridLayout, QSizePolicy, QLabel, QFrame
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QPushButton, QSlider, QLabel, QFrame, QGridLayout, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPainter, QColor, QFont, QBrush, QPen, QRadialGradient
@@ -47,7 +48,13 @@ class Cores:
     TEXTO_SECUNDARIO= QColor(140, 140, 170)
 
     # Botões
+    BTN_PRIMARIO    = QColor(80, 160, 255)
+    BTN_HOVER       = QColor(100, 180, 255)
     BTN_PERIGO      = QColor(255, 90, 90)
+    BTN_SUCESSO     = QColor(50, 200, 120)
+
+    # Acento
+    ACENTO          = QColor(130, 90, 255)
 
 
 # ─── Estado da célula ─────────────────────────────────────────────────
@@ -298,7 +305,7 @@ class JanelaPrincipal(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("🔍 Visualização A* — Busca Heurística")
-        self.setMinimumSize(550, 500)
+        self.setMinimumSize(650, 600)
 
         # Estilo global
         self.setStyleSheet(f"""
@@ -308,6 +315,46 @@ class JanelaPrincipal(QMainWindow):
             QWidget {{
                 color: {Cores.TEXTO_PRIMARIO.name()};
                 font-family: 'Segoe UI', sans-serif;
+            }}
+            QPushButton {{
+                background-color: {Cores.BG_CARD.name()};
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 8px;
+                padding: 8px 18px;
+                font-size: 13px;
+                font-weight: 600;
+                color: {Cores.TEXTO_PRIMARIO.name()};
+            }}
+            QPushButton:hover {{
+                background-color: {Cores.BTN_PRIMARIO.name()};
+                border-color: {Cores.BTN_HOVER.name()};
+            }}
+            QPushButton:pressed {{
+                background-color: {Cores.ACENTO.name()};
+            }}
+            QPushButton:disabled {{
+                background-color: {Cores.BG_PAINEL.name()};
+                color: {Cores.TEXTO_SECUNDARIO.name()};
+                border-color: rgba(255, 255, 255, 0.03);
+            }}
+            QSlider::groove:horizontal {{
+                height: 6px;
+                background: {Cores.BG_CARD.name()};
+                border-radius: 3px;
+            }}
+            QSlider::handle:horizontal {{
+                background: {Cores.BTN_PRIMARIO.name()};
+                width: 16px;
+                height: 16px;
+                margin: -5px 0;
+                border-radius: 8px;
+            }}
+            QSlider::sub-page:horizontal {{
+                background: {Cores.ACENTO.name()};
+                border-radius: 3px;
+            }}
+            QLabel {{
+                font-size: 12px;
             }}
         """)
 
@@ -365,6 +412,76 @@ class JanelaPrincipal(QMainWindow):
         self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout_principal.addWidget(self.lbl_status)
 
+        # ─── Barra de controles inferior ──────────────────────
+        barra = QFrame()
+        barra.setStyleSheet(f"""
+            QFrame {{
+                background-color: {Cores.BG_PAINEL.name()};
+                border-radius: 12px;
+                border: 1px solid rgba(255, 255, 255, 0.06);
+            }}
+        """)
+        barra_layout = QHBoxLayout(barra)
+        barra_layout.setContentsMargins(16, 10, 16, 10)
+        barra_layout.setSpacing(10)
+
+        self.btn_iniciar = QPushButton("▶  Iniciar")
+        self.btn_iniciar.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {Cores.BTN_SUCESSO.name()};
+                color: white;
+                font-weight: 700;
+            }}
+            QPushButton:hover {{ background-color: #28d87a; }}
+        """)
+        self.btn_iniciar.clicked.connect(self.iniciar)
+        barra_layout.addWidget(self.btn_iniciar)
+
+        self.btn_pausar = QPushButton("⏸  Pausar")
+        self.btn_pausar.setEnabled(False)
+        self.btn_pausar.clicked.connect(self.pausar)
+        barra_layout.addWidget(self.btn_pausar)
+
+        self.btn_passo = QPushButton("⏭  Passo")
+        self.btn_passo.clicked.connect(self.passo_unico)
+        barra_layout.addWidget(self.btn_passo)
+
+        self.btn_reiniciar = QPushButton("↺  Reiniciar")
+        self.btn_reiniciar.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {Cores.BTN_PERIGO.name()};
+                color: white;
+            }}
+            QPushButton:hover {{ background-color: #ff6060; }}
+        """)
+        self.btn_reiniciar.clicked.connect(self.reiniciar)
+        barra_layout.addWidget(self.btn_reiniciar)
+
+        # Separador vertical
+        sep_v = QFrame()
+        sep_v.setFrameShape(QFrame.Shape.VLine)
+        sep_v.setStyleSheet("background-color: rgba(255,255,255,0.1); max-width: 1px;")
+        barra_layout.addWidget(sep_v)
+
+        # Slider de velocidade
+        lbl_vel = QLabel("🕐 Velocidade:")
+        lbl_vel.setStyleSheet(f"color: {Cores.TEXTO_SECUNDARIO.name()};")
+        barra_layout.addWidget(lbl_vel)
+
+        self.slider_vel = QSlider(Qt.Orientation.Horizontal)
+        self.slider_vel.setRange(1, 20)
+        self.slider_vel.setValue(5)
+        self.slider_vel.setFixedWidth(120)
+        self.slider_vel.valueChanged.connect(self._atualizar_velocidade)
+        barra_layout.addWidget(self.slider_vel)
+
+        self.lbl_vel_valor = QLabel("200ms")
+        self.lbl_vel_valor.setFixedWidth(50)
+        self.lbl_vel_valor.setStyleSheet(f"color: {Cores.TEXTO_SECUNDARIO.name()};")
+        barra_layout.addWidget(self.lbl_vel_valor)
+
+        layout_principal.addWidget(barra)
+
         # ─── Timer de animação ────────────────────────────────
         self.timer = QTimer()
         self.timer.timeout.connect(self._proximo_passo)
@@ -376,11 +493,11 @@ class JanelaPrincipal(QMainWindow):
         self.rodando = False
         self.finalizado = False
 
-        # Inicia automaticamente para demonstração
-        self._criar_gerador()
-        self.rodando = True
-        self.timer.start(self.intervalo)
-        self.lbl_status.setText("▶  Explorando...")
+    def _atualizar_velocidade(self, val):
+        self.intervalo = max(20, 420 - val * 20)
+        self.lbl_vel_valor.setText(f"{self.intervalo}ms")
+        if self.rodando:
+            self.timer.setInterval(self.intervalo)
 
     def _criar_gerador(self):
         """Cria um novo gerador do A*."""
@@ -393,6 +510,53 @@ class JanelaPrincipal(QMainWindow):
             self.grid.objetivo
         )
 
+    def iniciar(self):
+        if self.finalizado:
+            self._criar_gerador()
+
+        if self.gerador is None:
+            self._criar_gerador()
+
+        self.rodando = True
+        self.timer.start(self.intervalo)
+        self.lbl_status.setText("▶  Explorando...")
+        self.lbl_status.setStyleSheet(f"color: {Cores.ATUAL.name()};")
+        self.btn_iniciar.setEnabled(False)
+        self.btn_pausar.setEnabled(True)
+        self.btn_passo.setEnabled(False)
+
+    def pausar(self):
+        self.rodando = False
+        self.timer.stop()
+        self.lbl_status.setText("⏸  Pausado")
+        self.lbl_status.setStyleSheet(f"color: {Cores.TEXTO_PRIMARIO.name()};")
+        self.btn_iniciar.setEnabled(True)
+        self.btn_pausar.setEnabled(False)
+        self.btn_passo.setEnabled(True)
+
+    def passo_unico(self):
+        """Avança um único passo."""
+        if self.finalizado:
+            self._criar_gerador()
+
+        if self.gerador is None:
+            self._criar_gerador()
+
+        self._proximo_passo()
+
+    def reiniciar(self):
+        self.timer.stop()
+        self.rodando = False
+        self.gerador = None
+        self.finalizado = False
+        self.passos = 0
+        self.grid.resetar_visual()
+        self.lbl_status.setText("⏸  Pronto para iniciar")
+        self.lbl_status.setStyleSheet(f"color: {Cores.TEXTO_PRIMARIO.name()};")
+        self.btn_iniciar.setEnabled(True)
+        self.btn_pausar.setEnabled(False)
+        self.btn_passo.setEnabled(True)
+
     def _proximo_passo(self):
         """Processa o próximo passo do gerador."""
         if self.gerador is None:
@@ -404,6 +568,9 @@ class JanelaPrincipal(QMainWindow):
             self.timer.stop()
             self.rodando = False
             self.finalizado = True
+            self.btn_iniciar.setEnabled(True)
+            self.btn_pausar.setEnabled(False)
+            self.btn_passo.setEnabled(True)
             return
 
         if tipo == 'explorar':
@@ -460,6 +627,9 @@ class JanelaPrincipal(QMainWindow):
             self.finalizado = True
             self.lbl_status.setText(f"✅  Caminho encontrado! ({len(caminho)} passos)")
             self.lbl_status.setStyleSheet(f"color: {Cores.CAMINHO.name()};")
+            self.btn_iniciar.setEnabled(True)
+            self.btn_pausar.setEnabled(False)
+            self.btn_passo.setEnabled(True)
 
         elif tipo == 'sem_caminho':
             self.timer.stop()
@@ -467,6 +637,9 @@ class JanelaPrincipal(QMainWindow):
             self.finalizado = True
             self.lbl_status.setText("❌  Nenhum caminho encontrado!")
             self.lbl_status.setStyleSheet(f"color: {Cores.BTN_PERIGO.name()};")
+            self.btn_iniciar.setEnabled(True)
+            self.btn_pausar.setEnabled(False)
+            self.btn_passo.setEnabled(True)
 
 
 # ─── Ponto de entrada ────────────────────────────────────────────────

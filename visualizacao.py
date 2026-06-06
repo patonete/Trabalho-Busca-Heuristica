@@ -1,16 +1,21 @@
 """
 Visualização interativa do algoritmo A* com PyQt6.
 
-Commit 1: Estrutura base — janela, grid e renderização das células.
+Funcionalidades até agora:
+  - Grid visual do mapa com obstáculos
+  - Algoritmo A* como gerador (passo a passo)
+  - Estados visuais para exploração (aberto, fechado, atual)
+  - Exibição de custos g(n) e f(n) em cada célula
 """
 
 import sys
+import heapq
 from enum import Enum, auto
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
     QGridLayout, QSizePolicy, QLabel, QFrame
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPainter, QColor, QFont, QBrush, QPen, QRadialGradient
 
 
@@ -27,6 +32,12 @@ class Cores:
     OBSTACULO       = QColor(30, 30, 44)
     OBSTACULO_BORDA = QColor(60, 40, 60)
 
+    # Exploração
+    ABERTO          = QColor(60, 130, 220)     # nós na fila (azul)
+    FECHADO         = QColor(80, 80, 130)      # nós já explorados
+    CAMINHO         = QColor(0, 220, 130)      # caminho final (verde)
+    ATUAL           = QColor(255, 180, 40)     # nó sendo explorado agora
+
     # Início / Objetivo
     INICIO          = QColor(100, 220, 255)
     OBJETIVO        = QColor(255, 80, 120)
@@ -35,14 +46,97 @@ class Cores:
     TEXTO_PRIMARIO  = QColor(230, 230, 245)
     TEXTO_SECUNDARIO= QColor(140, 140, 170)
 
+    # Botões
+    BTN_PERIGO      = QColor(255, 90, 90)
+
 
 # ─── Estado da célula ─────────────────────────────────────────────────
 
 class EstadoCelula(Enum):
     LIVRE    = auto()
     OBSTACULO= auto()
+    ABERTO   = auto()
+    FECHADO  = auto()
+    CAMINHO  = auto()
+    ATUAL    = auto()
     INICIO   = auto()
     OBJETIVO = auto()
+
+
+# ─── Gerador A* (passo a passo) ──────────────────────────────────────
+
+def heuristica(a, b):
+    """Distância Manhattan."""
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+
+def a_star_gerador(mapa, inicio, objetivo):
+    """
+    Versão geradora do A* que produz o estado a cada passo.
+    Cada yield entrega:
+      (tipo, dados)
+    onde tipo pode ser:
+      'explorar'  -> dados = (pos_atual, abertos_set, fechados_set, custo_g, custo_f)
+      'caminho'   -> dados = lista de posições do caminho
+      'sem_caminho' -> dados = None
+    """
+    linhas = len(mapa)
+    colunas = len(mapa[0])
+
+    fila = []
+    heapq.heappush(fila, (0, inicio))
+
+    veio_de = {}
+    custo_g = {inicio: 0}
+    custo_f = {inicio: heuristica(inicio, objetivo)}
+
+    abertos = {inicio}
+    fechados = set()
+
+    while fila:
+        _, atual = heapq.heappop(fila)
+
+        if atual in fechados:
+            continue
+
+        abertos.discard(atual)
+        fechados.add(atual)
+
+        # Entrega estado atual para visualização
+        yield ('explorar', (atual, set(abertos), set(fechados), dict(custo_g), dict(custo_f)))
+
+        if atual == objetivo:
+            caminho = []
+            pos = atual
+            while pos in veio_de:
+                caminho.append(pos)
+                pos = veio_de[pos]
+            caminho.append(inicio)
+            caminho.reverse()
+            yield ('caminho', caminho)
+            return
+
+        x, y = atual
+        vizinhos = [(x+1, y), (x-1, y), (x, y+1), (x, y-1)]
+
+        for nx, ny in vizinhos:
+            if 0 <= nx < linhas and 0 <= ny < colunas:
+                if mapa[nx][ny] == 1:
+                    continue
+                if (nx, ny) in fechados:
+                    continue
+
+                novo_custo = custo_g[atual] + 1
+
+                if (nx, ny) not in custo_g or novo_custo < custo_g[(nx, ny)]:
+                    custo_g[(nx, ny)] = novo_custo
+                    f = novo_custo + heuristica((nx, ny), objetivo)
+                    custo_f[(nx, ny)] = f
+                    heapq.heappush(fila, (f, (nx, ny)))
+                    abertos.add((nx, ny))
+                    veio_de[(nx, ny)] = atual
+
+    yield ('sem_caminho', None)
 
 
 # ─── Widget da célula ─────────────────────────────────────────────────
@@ -55,6 +149,8 @@ class CelulaWidget(QWidget):
         self.linha = linha
         self.coluna = coluna
         self.estado = EstadoCelula.LIVRE
+        self.g_custo = None
+        self.f_custo = None
         self.setMinimumSize(60, 60)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
@@ -62,6 +158,10 @@ class CelulaWidget(QWidget):
         cores = {
             EstadoCelula.LIVRE:     Cores.LIVRE,
             EstadoCelula.OBSTACULO: Cores.OBSTACULO,
+            EstadoCelula.ABERTO:    Cores.ABERTO,
+            EstadoCelula.FECHADO:   Cores.FECHADO,
+            EstadoCelula.CAMINHO:   Cores.CAMINHO,
+            EstadoCelula.ATUAL:     Cores.ATUAL,
             EstadoCelula.INICIO:    Cores.INICIO,
             EstadoCelula.OBJETIVO:  Cores.OBJETIVO,
         }
@@ -121,6 +221,24 @@ class CelulaWidget(QWidget):
             p.drawText(margem, margem, w - 2*margem, h - 2*margem,
                        Qt.AlignmentFlag.AlignCenter, "★")
 
+        # Custos g e f
+        elif self.g_custo is not None and self.estado not in (EstadoCelula.OBSTACULO, EstadoCelula.LIVRE):
+            font_small = QFont("Segoe UI", 7)
+            p.setFont(font_small)
+
+            # g no canto superior esquerdo
+            p.setPen(QPen(QColor(255, 255, 255, 180)))
+            p.drawText(margem + 4, margem + 2, w // 2, h // 2,
+                       Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft,
+                       f"g:{self.g_custo}")
+
+            # f no canto inferior direito
+            if self.f_custo is not None:
+                p.setPen(QPen(QColor(255, 255, 200, 160)))
+                p.drawText(w // 2 - 4, h // 2 - 2, w // 2 - margem, h // 2 - margem,
+                           Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight,
+                           f"f:{self.f_custo}")
+
         p.end()
 
 
@@ -155,6 +273,23 @@ class GridWidget(QWidget):
                 self.celulas[(i, j)] = cel
 
         self.setLayout(layout)
+
+    def resetar_visual(self):
+        """Reseta o visual para o estado do mapa atual."""
+        for i in range(self.linhas):
+            for j in range(self.colunas):
+                cel = self.celulas[(i, j)]
+                cel.g_custo = None
+                cel.f_custo = None
+                if (i, j) == self.inicio:
+                    cel.estado = EstadoCelula.INICIO
+                elif (i, j) == self.objetivo:
+                    cel.estado = EstadoCelula.OBJETIVO
+                elif self.mapa[i][j] == 1:
+                    cel.estado = EstadoCelula.OBSTACULO
+                else:
+                    cel.estado = EstadoCelula.LIVRE
+                cel.update()
 
 
 # ─── Janela Principal ────────────────────────────────────────────────
@@ -223,6 +358,115 @@ class JanelaPrincipal(QMainWindow):
         grid_layout.addWidget(self.grid)
 
         layout_principal.addWidget(grid_frame, stretch=1)
+
+        # ─── Status ──────────────────────────────────────────
+        self.lbl_status = QLabel("⏸  Pronto para iniciar")
+        self.lbl_status.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+        self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout_principal.addWidget(self.lbl_status)
+
+        # ─── Timer de animação ────────────────────────────────
+        self.timer = QTimer()
+        self.timer.timeout.connect(self._proximo_passo)
+        self.intervalo = 200  # ms
+
+        # ─── Estado do algoritmo ──────────────────────────────
+        self.gerador = None
+        self.passos = 0
+        self.rodando = False
+        self.finalizado = False
+
+        # Inicia automaticamente para demonstração
+        self._criar_gerador()
+        self.rodando = True
+        self.timer.start(self.intervalo)
+        self.lbl_status.setText("▶  Explorando...")
+
+    def _criar_gerador(self):
+        """Cria um novo gerador do A*."""
+        self.grid.resetar_visual()
+        self.passos = 0
+        self.finalizado = False
+        self.gerador = a_star_gerador(
+            self.grid.mapa,
+            self.grid.inicio,
+            self.grid.objetivo
+        )
+
+    def _proximo_passo(self):
+        """Processa o próximo passo do gerador."""
+        if self.gerador is None:
+            return
+
+        try:
+            tipo, dados = next(self.gerador)
+        except StopIteration:
+            self.timer.stop()
+            self.rodando = False
+            self.finalizado = True
+            return
+
+        if tipo == 'explorar':
+            atual, abertos, fechados, custo_g, custo_f = dados
+            self.passos += 1
+
+            # Atualiza todas as células
+            for i in range(self.grid.linhas):
+                for j in range(self.grid.colunas):
+                    pos = (i, j)
+                    cel = self.grid.celulas[pos]
+
+                    if pos == self.grid.inicio:
+                        cel.estado = EstadoCelula.INICIO
+                    elif pos == self.grid.objetivo:
+                        cel.estado = EstadoCelula.OBJETIVO
+                    elif self.grid.mapa[i][j] == 1:
+                        cel.estado = EstadoCelula.OBSTACULO
+                    elif pos == atual:
+                        cel.estado = EstadoCelula.ATUAL
+                    elif pos in fechados:
+                        cel.estado = EstadoCelula.FECHADO
+                    elif pos in abertos:
+                        cel.estado = EstadoCelula.ABERTO
+                    else:
+                        cel.estado = EstadoCelula.LIVRE
+
+                    # Custos
+                    if pos in custo_g:
+                        cel.g_custo = custo_g[pos]
+                        cel.f_custo = custo_f.get(pos)
+                    else:
+                        cel.g_custo = None
+                        cel.f_custo = None
+
+                    cel.update()
+
+            self.lbl_status.setText(f"▶  Explorando... (passo {self.passos})")
+
+        elif tipo == 'caminho':
+            caminho = dados
+            for pos in caminho:
+                cel = self.grid.celulas[pos]
+                if pos == self.grid.inicio:
+                    cel.estado = EstadoCelula.INICIO
+                elif pos == self.grid.objetivo:
+                    cel.estado = EstadoCelula.OBJETIVO
+                else:
+                    cel.estado = EstadoCelula.CAMINHO
+                cel.update()
+
+            self.timer.stop()
+            self.rodando = False
+            self.finalizado = True
+            self.lbl_status.setText(f"✅  Caminho encontrado! ({len(caminho)} passos)")
+            self.lbl_status.setStyleSheet(f"color: {Cores.CAMINHO.name()};")
+
+        elif tipo == 'sem_caminho':
+            self.timer.stop()
+            self.rodando = False
+            self.finalizado = True
+            self.lbl_status.setText("❌  Nenhum caminho encontrado!")
+            self.lbl_status.setStyleSheet(f"color: {Cores.BTN_PERIGO.name()};")
 
 
 # ─── Ponto de entrada ────────────────────────────────────────────────

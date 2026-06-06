@@ -1,13 +1,12 @@
 """
 Visualização interativa do algoritmo A* com PyQt6.
 
-Funcionalidades até agora:
+Funcionalidades:
   - Grid visual do mapa com obstáculos
-  - Algoritmo A* como gerador (passo a passo)
-  - Estados visuais para exploração (aberto, fechado, atual)
+  - Animação passo a passo da exploração
+  - Controles: Iniciar, Pausar, Reiniciar, velocidade
   - Exibição de custos g(n) e f(n) em cada célula
-  - Controles: Iniciar, Pausar, Passo, Reiniciar e Velocidade
-  - Painel lateral com legenda, estatísticas e modos de edição
+  - Legenda de cores
   - Clique para editar obstáculos, início e objetivo
 """
 
@@ -16,10 +15,11 @@ import heapq
 from enum import Enum, auto
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QSlider, QLabel, QFrame, QGridLayout, QSizePolicy
+    QPushButton, QSlider, QLabel, QFrame, QGridLayout, QSizePolicy,
+    QGraphicsDropShadowEffect
 )
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QPainter, QColor, QFont, QBrush, QPen, QRadialGradient
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtProperty, QSize
+from PyQt6.QtGui import QPainter, QColor, QFont, QBrush, QPen, QLinearGradient, QRadialGradient
 
 
 # ─── Paleta de cores ──────────────────────────────────────────────────
@@ -48,6 +48,7 @@ class Cores:
     # Texto
     TEXTO_PRIMARIO  = QColor(230, 230, 245)
     TEXTO_SECUNDARIO= QColor(140, 140, 170)
+    TEXTO_CUSTO     = QColor(200, 200, 230)
 
     # Botões
     BTN_PRIMARIO    = QColor(80, 160, 255)
@@ -161,9 +162,30 @@ class CelulaWidget(QWidget):
         self.estado = EstadoCelula.LIVRE
         self.g_custo = None
         self.f_custo = None
+        self._brilho = 0.0
         self.setMinimumSize(60, 60)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def get_brilho(self):
+        return self._brilho
+
+    def set_brilho(self, val):
+        self._brilho = val
+        self.update()
+
+    brilho = pyqtProperty(float, get_brilho, set_brilho)
+
+    def animar_brilho(self):
+        """Cria uma animação de pulso de brilho."""
+        anim = QPropertyAnimation(self, b"brilho")
+        anim.setDuration(400)
+        anim.setStartValue(1.0)
+        anim.setEndValue(0.0)
+        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        anim.start()
+        # Manter referência para não ser coletado pelo GC
+        self._anim = anim
 
     def _cor_base(self):
         cores = {
@@ -188,15 +210,24 @@ class CelulaWidget(QWidget):
 
         cor_base = self._cor_base()
 
+        # Mistura com branco para o brilho
+        if self._brilho > 0:
+            r = min(255, int(cor_base.red()   + (255 - cor_base.red())   * self._brilho * 0.5))
+            g = min(255, int(cor_base.green() + (255 - cor_base.green()) * self._brilho * 0.5))
+            b = min(255, int(cor_base.blue()  + (255 - cor_base.blue())  * self._brilho * 0.5))
+            cor_final = QColor(r, g, b)
+        else:
+            cor_final = cor_base
+
         # Gradiente radial sutil
         grad = QRadialGradient(w / 2, h / 2, max(w, h) / 1.5)
         cor_clara = QColor(
-            min(255, cor_base.red() + 20),
-            min(255, cor_base.green() + 20),
-            min(255, cor_base.blue() + 20)
+            min(255, cor_final.red() + 20),
+            min(255, cor_final.green() + 20),
+            min(255, cor_final.blue() + 20)
         )
         grad.setColorAt(0, cor_clara)
-        grad.setColorAt(1, cor_base)
+        grad.setColorAt(1, cor_final)
 
         # Desenha o retângulo arredondado
         p.setPen(Qt.PenStyle.NoPen)
@@ -341,6 +372,7 @@ class GridWidget(QWidget):
                 cel = self.celulas[(i, j)]
                 cel.g_custo = None
                 cel.f_custo = None
+                cel._brilho = 0.0
                 if (i, j) == self.inicio:
                     cel.estado = EstadoCelula.INICIO
                 elif (i, j) == self.objetivo:
@@ -487,6 +519,13 @@ class JanelaPrincipal(QMainWindow):
         grid_layout.setContentsMargins(8, 8, 8, 8)
         grid_layout.addWidget(self.grid)
 
+        # Sombra no grid frame
+        sombra = QGraphicsDropShadowEffect()
+        sombra.setBlurRadius(30)
+        sombra.setColor(QColor(0, 0, 0, 80))
+        sombra.setOffset(0, 4)
+        grid_frame.setGraphicsEffect(sombra)
+
         area_central.addWidget(grid_frame, stretch=3)
 
         # ─── Painel lateral ───────────────────────────────────
@@ -575,6 +614,13 @@ class JanelaPrincipal(QMainWindow):
             painel_layout.addWidget(btn)
 
         painel_layout.addStretch()
+
+        # Sombra no painel
+        sombra2 = QGraphicsDropShadowEffect()
+        sombra2.setBlurRadius(30)
+        sombra2.setColor(QColor(0, 0, 0, 80))
+        sombra2.setOffset(0, 4)
+        painel.setGraphicsEffect(sombra2)
 
         area_central.addWidget(painel, stretch=1)
         layout_principal.addLayout(area_central, stretch=1)
@@ -800,6 +846,7 @@ class JanelaPrincipal(QMainWindow):
                         cel.estado = EstadoCelula.OBSTACULO
                     elif pos == atual:
                         cel.estado = EstadoCelula.ATUAL
+                        cel.animar_brilho()
                     elif pos in fechados:
                         cel.estado = EstadoCelula.FECHADO
                     elif pos in abertos:
@@ -823,6 +870,7 @@ class JanelaPrincipal(QMainWindow):
 
         elif tipo == 'caminho':
             caminho = dados
+            # Anima o caminho final
             for pos in caminho:
                 cel = self.grid.celulas[pos]
                 if pos == self.grid.inicio:
@@ -831,6 +879,7 @@ class JanelaPrincipal(QMainWindow):
                     cel.estado = EstadoCelula.OBJETIVO
                 else:
                     cel.estado = EstadoCelula.CAMINHO
+                    cel.animar_brilho()
                 cel.update()
 
             self.timer.stop()

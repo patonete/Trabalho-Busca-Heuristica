@@ -1,10 +1,12 @@
 import heapq
 
-# Versão mais próxima da implementação final
+# Biblioteca usada para criar uma fila de prioridade (min-heap)
 
+# Função heurística (distância Manhattan)
 def heuristica(a, b):
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
+# Implementação do algoritmo A*
 def a_star(mapa, inicio, objetivo):
 
     linhas = len(mapa)
@@ -70,6 +72,8 @@ def a_star(mapa, inicio, objetivo):
     return None
 
 
+# MAPA DE TESTE
+
 mapa = [
     [0, 0, 0, 0, 0],
     [1, 1, 0, 1, 0],
@@ -83,5 +87,8 @@ objetivo = (4, 4)
 
 caminho = a_star(mapa, inicio, objetivo)
 
-print("Caminho encontrado:")
-print(caminho)
+if caminho:
+    print("Caminho encontrado:")
+    print(caminho)
+else:
+    print("Nenhum caminho encontrado.")

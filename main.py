@@ -5,5 +5,8 @@ mapa = [
     [0, 0, 0]
 ]
 
-print(mapa)
-print("Mapa carregado com sucesso!")
+inicio = (0, 0)
+objetivo = (2, 2)
+
+print("Início:", inicio)
+print("Objetivo:", objetivo)

@@ -1,5 +1,7 @@
 import heapq
 
+# Adiciona rastreamento do caminho percorrido
+
 mapa = [
     [0, 0, 0],
     [0, 1, 0],
@@ -18,13 +20,24 @@ def a_star(mapa, inicio, objetivo):
     heapq.heappush(fila, (0, inicio))
 
     custo = {inicio: 0}
+    veio_de = {}
 
     while fila:
 
         _, atual = heapq.heappop(fila)
 
         if atual == objetivo:
-            return [inicio, objetivo]
+
+            caminho = []
+
+            while atual in veio_de:
+                caminho.append(atual)
+                atual = veio_de[atual]
+
+            caminho.append(inicio)
+            caminho.reverse()
+
+            return caminho
 
         x, y = atual
 
@@ -58,9 +71,11 @@ def a_star(mapa, inicio, objetivo):
                         (prioridade, (nx, ny))
                     )
 
+                    veio_de[(nx, ny)] = atual
+
     return None
 
 caminho = a_star(mapa, inicio, objetivo)
 
-print("Resultado:")
+print("Caminho encontrado:")
 print(caminho)
